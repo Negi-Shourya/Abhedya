@@ -24,7 +24,6 @@
             position: fixed; top: 0; left: 0; z-index: 1;
         }
 
-        /* Responsive Layout Container */
         .main-wrapper {
             position: relative; z-index: 10;
             display: flex; flex-direction: column;
@@ -33,7 +32,6 @@
             padding: 20px; box-sizing: border-box;
         }
 
-        /* Branding Section */
         .branding {
             text-align: center; margin-bottom: 40px;
         }
@@ -58,7 +56,6 @@
             font-weight: 600; text-transform: uppercase;
         }
 
-        /* Form Card */
         .register-card {
             background: var(--glass);
             backdrop-filter: blur(20px);
@@ -91,24 +88,79 @@
 
         button:hover { background: #ff0000; transform: translateY(-2px); }
 
-        /* Prank Page (Hidden) */
+        /* Prank Page */
         #prank-page {
-            display: none; position: fixed; inset: 0;
+            display: none;
+            position: fixed; inset: 0;
             background: #000; z-index: 1000;
             flex-direction: column; align-items: center; justify-content: center;
         }
 
         .prank-overlay-text {
-            position: absolute; top: 10%; z-index: 1001;
-            font-size: clamp(2rem, 10vw, 6rem);
+            position: absolute;
+            top: 6%;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1002; /* above iframe */
+            font-size: clamp(2rem, 8vw, 5rem);
             font-weight: 900; color: white;
-            text-shadow: 0 0 20px var(--primary-red);
+            white-space: nowrap;
+            text-shadow:
+                0 0 20px var(--primary-red),
+                0 0 40px var(--primary-red),
+                0 0 80px rgba(204,0,0,0.5);
             pointer-events: none;
+            animation: flicker 1.5s infinite alternate;
+            display: none; /* hidden until unmute is clicked */
         }
 
-        /* Video Container to force fullscreen feel */
+        @keyframes flicker {
+            0%   { opacity: 1; }
+            80%  { opacity: 1; }
+            85%  { opacity: 0.7; }
+            90%  { opacity: 1; }
+            95%  { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
         .video-wrapper {
-            width: 100vw; height: 100vh;
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            z-index: 1001;
+        }
+
+        .video-wrapper iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+        }
+
+        /* Unmute nudge button */
+        #unmute-btn {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1003;
+            background: rgba(204,0,0,0.85);
+            color: white;
+            border: 2px solid white;
+            padding: 12px 28px;
+            border-radius: 50px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            letter-spacing: 1px;
+            box-shadow: 0 0 20px rgba(204,0,0,0.6);
+            animation: pulse 1.2s infinite;
+            display: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: translateX(-50%) scale(1); }
+            50%       { transform: translateX(-50%) scale(1.06); }
         }
     </style>
 </head>
@@ -118,7 +170,8 @@
 
     <div id="registration-page" class="main-wrapper">
         <div class="branding">
-            <img src="https://iste.nith.ac.in/assets/img/logo.png" alt="ISTE Logo" class="iste-logo">
+            <img src="https://iste.nith.ac.in/assets/img/logo.png" alt="ISTE Logo" class="iste-logo"
+                 onerror="this.style.display='none'">
             <h1>ABHEDYA</h1>
             <div class="subtitle">By ISTE NITH</div>
         </div>
@@ -130,60 +183,89 @@
         </div>
     </div>
 
+    <!-- PRANK PAGE -->
     <div id="prank-page">
         <div class="prank-overlay-text">APRIL FOOL! 🤡</div>
         <div id="video-injection" class="video-wrapper"></div>
+        <!-- Shown only if browser blocks autoplay with sound -->
+        <button id="unmute-btn" onclick="unmuteVideo()">🔊 Click to Unmute!</button>
     </div>
 
     <script>
-        // --- 1. PRO THREE.JS BACKGROUND ---
-        let scene, camera, renderer, starGeo, stars;
+        // ─── 1. THREE.JS STARFIELD (using BufferGeometry – compatible with r128) ───
+        let scene, camera, renderer;
+        let positions, velocities, accelerations;
+        const STAR_COUNT = 6000;
+
         function init3D() {
             scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 1, 1000);
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 1000);
             camera.position.z = 1;
-            camera.rotation.x = Math.PI/2;
+            camera.rotation.x = Math.PI / 2;
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-            starGeo = new THREE.Geometry();
-            for(let i=0; i<6000; i++) {
-                let star = new THREE.Vector3(Math.random()*600-300, Math.random()*600-300, Math.random()*600-300);
-                star.velocity = 0;
-                star.acceleration = 0.01;
-                starGeo.vertices.push(star);
+            // BufferGeometry replaces deprecated THREE.Geometry
+            const starGeo = new THREE.BufferGeometry();
+            positions    = new Float32Array(STAR_COUNT * 3);
+            velocities   = new Float32Array(STAR_COUNT);
+            accelerations = new Float32Array(STAR_COUNT);
+
+            for (let i = 0; i < STAR_COUNT; i++) {
+                positions[i * 3]     = Math.random() * 600 - 300; // x
+                positions[i * 3 + 1] = Math.random() * 600 - 300; // y
+                positions[i * 3 + 2] = Math.random() * 600 - 300; // z
+                velocities[i]        = 0;
+                accelerations[i]     = 0.01;
             }
 
-            let sprite = new THREE.TextureLoader().load('https://threejs.org/examples/textures/sprites/disc.png');
-            let starMaterial = new THREE.PointsMaterial({ color: 0xaaaaaa, size: 0.7, map: sprite, transparent: true });
-            stars = new THREE.Points(starGeo, starMaterial);
-            scene.add(stars);
-            animate();
+            starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+            new THREE.TextureLoader().load(
+                'https://threejs.org/examples/textures/sprites/disc.png',
+                (sprite) => {
+                    const starMaterial = new THREE.PointsMaterial({
+                        color: 0xaaaaaa, size: 0.7,
+                        map: sprite, transparent: true
+                    });
+                    const stars = new THREE.Points(starGeo, starMaterial);
+                    scene.add(stars);
+                    animate(stars, starGeo);
+                }
+            );
         }
 
-        function animate() {
-            starGeo.vertices.forEach(p => {
-                p.velocity += p.acceleration;
-                p.y -= p.velocity;
-                if (p.y < -200) { p.y = 200; p.velocity = 0; }
-            });
-            starGeo.verticesNeedUpdate = true;
+        function animate(stars, starGeo) {
+            for (let i = 0; i < STAR_COUNT; i++) {
+                velocities[i] += accelerations[i];
+                positions[i * 3 + 1] -= velocities[i]; // move downward
+                if (positions[i * 3 + 1] < -200) {
+                    positions[i * 3 + 1] = 200;
+                    velocities[i] = 0;
+                }
+            }
+            starGeo.attributes.position.needsUpdate = true;
             stars.rotation.y += 0.001;
             renderer.render(scene, camera);
-            requestAnimationFrame(animate);
+            requestAnimationFrame(() => animate(stars, starGeo));
         }
 
-        // --- 2. THE HANDLER ---
+        // ─── 2. WARP SPEED BOOST ON SUBMIT ───
+        function triggerWarp() {
+            for (let i = 0; i < STAR_COUNT; i++) {
+                accelerations[i] = 0.9;
+            }
+        }
+
+        // ─── 3. REGISTER HANDLER ───
         function handleRegister() {
-            const roll = document.getElementById('rollNo').value;
-            if(!roll) { alert("Please enter your Roll Number!"); return; }
+            const roll = document.getElementById('rollNo').value.trim();
+            if (!roll) { alert("Please enter your Roll Number!"); return; }
 
-            // High-speed Warp effect
-            starGeo.vertices.forEach(p => p.acceleration = 0.9);
+            triggerWarp();
 
-            // Animate form out
             gsap.to("#registration-page", {
                 duration: 0.6,
                 scale: 0.8,
@@ -196,27 +278,55 @@
             });
         }
 
+        // ─── 4. PRANK TRIGGER ───
+        // Strategy: embed with autoplay + mute=1 (browsers allow this).
+        // After 300ms show an unmute button, and also try to post a message
+        // to unmute (works on some browsers). User click on the button also
+        // re-injects the iframe with mute=0 — once user has interacted, it works.
+
+        let prankIframe = null;
+
         function triggerPrank() {
             const prankPage = document.getElementById('prank-page');
             prankPage.style.display = 'flex';
 
-            // Forced Autoplay Injection
-            // Using ?autoplay=1&mute=0 and allow="autoplay"
-            document.getElementById('video-injection').innerHTML = `
-                <iframe 
-                    width="100%" height="100%" 
-                    src="https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&controls=0&mute=0&rel=0&showinfo=0" 
-                    frameborder="0" 
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                    allowfullscreen
-                    style="width:100vw; height:100vh;">
-                </iframe>
-            `;
+            // Inject muted autoplay first (guaranteed to work in all browsers)
+            injectIframe(true);
 
-            gsap.from(".prank-overlay-text", { duration: 1, scale: 0, ease: "elastic.out(1, 0.3)" });
+            // After a short delay, show the unmute nudge
+            setTimeout(() => {
+                document.getElementById('unmute-btn').style.display = 'block';
+            }, 800);
+
+            // "APRIL FOOL!" text is revealed only after unmute is clicked
         }
 
-        // Handle Resize
+        function injectIframe(muted) {
+            const muteParam = muted ? 1 : 0;
+            document.getElementById('video-injection').innerHTML = `
+                <iframe
+                    id="rick-iframe"
+                    src="https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&mute=${muteParam}&controls=0&rel=0&showinfo=0&modestbranding=1"
+                    frameborder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowfullscreen
+                    style="width:100vw; height:100vh; display:block; border:none;">
+                </iframe>
+            `;
+        }
+
+        function unmuteVideo() {
+            // Re-inject without mute after user gesture — browsers allow sound now
+            injectIframe(false);
+            document.getElementById('unmute-btn').style.display = 'none';
+
+            // NOW reveal the April Fool text with a pop animation
+            const text = document.querySelector('.prank-overlay-text');
+            text.style.display = 'block';
+            gsap.from(text, { duration: 1, scale: 0, ease: "elastic.out(1, 0.3)" });
+        }
+
+        // ─── 5. RESIZE HANDLER ───
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
